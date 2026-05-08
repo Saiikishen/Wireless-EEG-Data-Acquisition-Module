@@ -15,9 +15,6 @@ A compact, rechargeable, single-channel EEG acquisition board based on the ExG B
 7. [I²C Bus Configuration](#i2c-bus-configuration)
 8. [PCB Layout Notes](#pcb-layout-notes)
 9. [Electrical Specifications](#electrical-specifications)
-10. [Firmware Guidance](#firmware-guidance)
-11. [Assembly Notes](#assembly-notes)
-12. [Safety Considerations](#safety-considerations)
 
 ---
 
@@ -68,7 +65,6 @@ USB-C (J3) → TP4056 charging input
 | TP1 | Test point | 3.3 V rail | — | 1 |
 | TP2 | Test point | GND | — | 1 |
 
-> **Note:** All bypass capacitors (C1, C2) should be placed as close as possible to the VCC pins of their respective ICs. C3 is the output bulk capacitor for the AMS1117.
 
 ---
 
@@ -130,7 +126,7 @@ A single-cell lithium-ion battery charger with integrated protection logic.
 - Includes overcharge, over-discharge, and short-circuit protection in full-module versions
 - Status indicators: CHRG (charging), STDBY (charge complete)
 
-> **Important:** If using a bare TP4056 IC (not a pre-built module), add a 2kΩ programming resistor on the PROG pin to set charge current to ~500 mA, appropriate for cells between 500–1000 mAh. Charging at 1C or lower is recommended.
+
 
 ---
 
@@ -280,19 +276,6 @@ To add a second ADS1115 (for additional channels), connect its ADDR pin to VCC a
 | Analog differential pair (AIN0+/−) | 0.15 mm, length-matched |
 | USB-C / VBAT power | 0.5–1.0 mm |
 
-### Critical placement rules
-
-1. **Analog front-end isolation:** Place U1 (ExG Biopill) and U2 (ADS1115) on the opposite side of the board from U3 (ESP32). The ESP32's switching regulator and RF emissions are significant noise sources for a µV-level analog front-end.
-
-2. **Antenna keep-out zone:** Maintain a minimum 3 mm copper-free keep-out zone around the ESP32's PCB trace antenna. No copper pours, vias, or traces in this region on any layer.
-
-3. **Bypass capacitors:** C1 and C2 must be placed within 1 mm of the VCC pin of their respective ICs, with the ground via directly adjacent.
-
-4. **Differential pair routing:** Route AIN0+ and AIN0− as a tightly coupled differential pair (gap ≤ 0.15 mm), with equal length. Avoid running them parallel to I²C or power traces for more than 5 mm.
-
-5. **GND plane continuity:** Do not cut the bottom copper GND plane under the analog signal path. A solid plane is critical for shielding and a stable voltage reference for the ADC.
-
-6. **USB-C connector placement:** J3 must be accessible from the board edge. Ensure the pad footprint matches your selected USB-C receptacle's datasheet exactly — USB-C pad geometries vary between manufacturers.
 
 ---
 
@@ -314,68 +297,3 @@ To add a second ADS1115 (for additional channels), connect its ADDR pin to VCC a
 
 ---
 
-## Firmware Guidance
-
-The following pseudo-code outlines the core firmware loop. Implement using the Arduino framework or ESP-IDF.
-
-```cpp
-#include <Wire.h>
-#include <Adafruit_ADS1X15.h>
-#include <WiFiUdp.h>
-
-Adafruit_ADS1115 ads;
-WiFiUDP udp;
-
-void setup() {
-  Wire.begin(21, 22);          // SDA=GPIO21, SCL=GPIO22
-  ads.setGain(GAIN_TWO);       // ±1.024V full scale
-  ads.setDataRate(RATE_ADS1115_860SPS);
-  ads.begin(0x48);             // ADDR → GND
-
-  WiFi.begin(SSID, PASSWORD);
-  udp.begin(UDP_PORT);
-}
-
-void loop() {
-  int16_t raw = ads.readADC_Differential_0_1();
-  float voltage_uV = raw * 31.25f;  // µV per LSB at ±1.024V
-
-  // Pack sample + timestamp into UDP payload
-  uint8_t buf[6];
-  uint32_t ts = micros();
-  memcpy(buf, &ts, 4);
-  memcpy(buf + 4, &raw, 2);
-  udp.beginPacket(HOST_IP, HOST_PORT);
-  udp.write(buf, 6);
-  udp.endPacket();
-}
-```
-
-> For continuous acquisition without polling delay, configure the ADS1115 in **continuous conversion mode** and use the ALRT/RDY pin (if broken out) as a data-ready interrupt on a spare ESP32 GPIO rather than polling via I²C.
-
----
-
-## Assembly Notes
-
-1. Solder SMD components (U2, U4, U5, C1–C3) before through-hole and connectors.
-2. Solder the ESP32-WROOM-32 module using castellated pads; ensure full solder contact on all pads, especially the ground pad row.
-3. Do not apply flux or solder to the antenna area of the ESP32 module.
-4. Connect the LiPo cell last, after all solder work is complete, to avoid shorts during assembly.
-5. Verify +3V3 rail voltage at TP1 before connecting U1 or any external electrodes.
-6. Measure quiescent current at TP1/TP2 before powering the full system; expected idle draw is ~25–30 mA.
-
----
-
-## Safety Considerations
-
-> ⚠️ **Body-contact device warning:** This circuit is designed to interface directly with human skin via EEG electrodes. The following precautions are mandatory.
-
-- **Isolation:** This design is **not medically isolated**. It must not be used in clinical or diagnostic settings without a certified isolation barrier between the patient and any mains-connected equipment.
-- **Battery protection:** Ensure the LiPo cell includes or is paired with a protection circuit module (PCM) to prevent over-discharge, over-charge, and short-circuit conditions.
-- **Electrode gel:** Use only conductive gel certified for skin contact. Avoid broken skin.
-- **Current limitation:** The ExG Biopill's instrumentation amplifier input impedance and the ADC input protection diodes limit injected current to well below IEC 60601-1 patient auxiliary current limits under normal operation, but this has not been formally verified for this design.
-- **USB charging:** Do not wear the device while simultaneously charging via USB-C unless an isolation transformer is used on the USB supply.
-
----
-
-*EEG-ACQ-v1.0 · Designed with ExG Biopill + ADS1115 + ESP32 · Released for reference use*
